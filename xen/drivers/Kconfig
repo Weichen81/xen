@@ -15,4 +15,12 @@ source "drivers/video/Kconfig"
 config HAS_VPCI
 	bool
 
+config VIRTIO
+	bool "VIRTIO support"
+	default y
+	depends on ARM_64
+	select IOREQ_SERVER
+	help
+	  VIRTIO transprot support.
+
 endmenu
