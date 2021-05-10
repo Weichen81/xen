@@ -116,6 +116,7 @@ SRCS-y += _libxl_types.c
 SRCS-y += libxl_flask.c
 SRCS-y += _libxl_types_internal.c
 SRCS-y += libxl_virtio_disk.c
+SRCS-y += libxl_virtio_net.c
 
 ifeq ($(CONFIG_LIBNL),y)
 CFLAGS_LIBXL += $(LIBNL3_CFLAGS)
