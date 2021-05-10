@@ -1206,6 +1206,7 @@ out:
 
 #define MAX_VIRTIO_DISKS 4
 #define MAX_VIRTIO_NETS 4
+#define MAX_VIRTIO_CONSOLES 4
 
 static int parse_virtio_disk_config(libxl_device_virtio_disk *virtio_disk, char *token)
 {
@@ -1419,6 +1420,119 @@ static void parse_virtio_net_list(const XLU_Config *config,
 
             if (virtio_net->num_netifs == 0) {
                 fprintf(stderr, "At least one virtio net should be specified\n");
+                rc = 1; goto out;
+            }
+        }
+    }
+
+    rc = 0;
+
+out:
+    free(buf);
+    if (rc) exit(EXIT_FAILURE);
+}
+
+static int parse_virtio_console_config(
+              libxl_device_virtio_console *virtio_console, char *token)
+{
+    char *oparg;
+    libxl_string_list cons = NULL;
+    int i, rc;
+
+    if (MATCH_OPTION("backend", token, oparg)) {
+        virtio_console->backend_domname = strdup(oparg);
+    } else if (MATCH_OPTION("cons", token, oparg)) {
+        split_string_into_string_list(oparg, ";", &cons);
+
+        virtio_console->num_cons = libxl_string_list_length(&cons);
+        if (virtio_console->num_cons > MAX_VIRTIO_CONSOLES) {
+            fprintf(stderr, "vconsole: currently only %d vconsole are supported",
+                    MAX_VIRTIO_CONSOLES);
+            return 1;
+        }
+        virtio_console->cons = xcalloc(virtio_console->num_cons,
+                                     sizeof(*virtio_console->cons));
+
+        for(i = 0; i < virtio_console->num_cons; i++) {
+            char *con_opt;
+
+            rc = split_string_into_pair(cons[i], ":", &con_opt,
+                                        &virtio_console->cons[i].tty);
+            if (rc) {
+                fprintf(stderr, "vconsole: failed to split \"%s\" into pair\n",
+                        cons[i]);
+                goto out;
+            }
+
+            if (!strcmp(con_opt, "ro"))
+                virtio_console->cons[i].printonly = 1;
+            else if (!strcmp(con_opt, "rw"))
+                virtio_console->cons[i].printonly = 0;
+            else {
+                fprintf(stderr, "vconsole: failed to parse \"%s\" console option\n",
+                        con_opt);
+                rc = 1;
+            }
+            free(con_opt);
+
+            if (rc) goto out;
+        }
+    } else {
+        fprintf(stderr, "Unknown string \"%s\" in vconsole spec\n", token);
+        rc = 1; goto out;
+    }
+
+    rc = 0;
+
+out:
+    libxl_string_list_dispose(&cons);
+    return rc;
+}
+
+static void parse_virtio_console_list(const XLU_Config *config,
+                            libxl_domain_config *d_config)
+{
+    XLU_ConfigList *virtio_consoles;
+    const char *item;
+    char *buf = NULL;
+    int rc;
+
+    if (!xlu_cfg_get_list (config, "vconsole", &virtio_consoles, 0, 0)) {
+        libxl_domain_build_info *b_info = &d_config->b_info;
+        int entry = 0;
+
+        /* XXX Remove an extra property */
+        libxl_defbool_setdefault(&b_info->arch_arm.virtio, false);
+        if (!libxl_defbool_val(b_info->arch_arm.virtio)) {
+            fprintf(stderr, "Virtio device requires Virtio property to be set\n");
+            exit(EXIT_FAILURE);
+        }
+
+        while ((item = xlu_cfg_get_listitem(virtio_consoles, entry)) != NULL) {
+            libxl_device_virtio_console *virtio_console;
+            char *p;
+
+            virtio_console = ARRAY_EXTEND_INIT(d_config->virtio_consoles,
+                                            d_config->num_virtio_consoles,
+                                            libxl_device_virtio_console_init);
+
+            buf = strdup(item);
+
+            p = strtok (buf, ",");
+            while (p != NULL)
+            {
+                while (*p == ' ') p++;
+
+                rc = parse_virtio_console_config(virtio_console, p);
+                if (rc) goto out;
+
+                p = strtok (NULL, ",");
+            }
+
+            entry++;
+
+            if (virtio_console->num_cons == 0) {
+                fprintf(stderr, "At least one virtio console should be specified\n");
                 rc = 1; goto out;
             }
         }
@@ -2967,6 +3081,7 @@ skip_usbdev:
     parse_vkb_list(config, d_config);
     parse_virtio_disk_list(config, d_config);
     parse_virtio_net_list(config, d_config);
+    parse_virtio_console_list(config, d_config);
 
     xlu_cfg_get_defbool(config, "xend_suspend_evtchn_compat",
                         &c_info->xend_suspend_evtchn_compat, 0);
