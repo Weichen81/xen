@@ -1097,6 +1097,16 @@ next_resize:
                     FDT( make_virtio_mmio_node(gc, fdt, base, irq) );
                 }
             }
+
+            if (d_config->num_virtio_nets) {
+                libxl_device_virtio_net *virtio_net = &d_config->virtio_nets[0];
+                for (i = 0; i < virtio_net->num_netifs; i++) {
+                    uint64_t base = virtio_net->netifs[i].base;
+                    uint32_t irq = virtio_net->netifs[i].irq;
+
+                    FDT( make_virtio_mmio_node(gc, fdt, base, irq) );
+                }
+            }
         }
 
         if (pfdt)
