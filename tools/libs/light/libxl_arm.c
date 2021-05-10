@@ -26,6 +26,46 @@ static const char *gicv_to_string(libxl_gic_version gic_version)
     }
 }
 
+static bool is_virtio_device_present(libxl_domain_config *d_config)
+{
+    if ((d_config->num_virtio_disks == 0)) {
+        return false;
+    }
+
+    return true;
+}
+
+/*
+ * This function must be called after is_virtio_device_present
+ * and is_virtio_device_present return true.
+ * This function will return last virtio device's irq number.
+ */
+static uint32_t prepare_virtio_config(libxl__gc *gc,
+                                      libxl_domain_config *d_config)
+{
+    unsigned int i;
+    uint64_t base = GUEST_VIRTIO_MMIO_BASE;
+    uint32_t irq = GUEST_VIRTIO_MMIO_SPI;
+    libxl_device_virtio_disk *virtio_disk;
+
+    /* Allocate MMIO base and IRQ for virtio disk */
+    if (d_config->num_virtio_disks) {
+        virtio_disk = &d_config->virtio_disks[0];
+        for (i = 0; i < virtio_disk->num_disks; i++) {
+            virtio_disk->disks[i].base = base;
+            virtio_disk->disks[i].irq = irq;
+
+            LOG(DEBUG, "Allocate Virtio Disk MMIO params: IRQ %u BASE 0x%"PRIx64,
+                irq, base);
+
+            irq++;
+            base += GUEST_VIRTIO_MMIO_SIZE;
+        }
+    }
+
+    return irq;
+}
+
 int libxl__arch_domain_prepare_config(libxl__gc *gc,
                                       libxl_domain_config *d_config,
                                       struct xen_domctl_createdomain *config)
@@ -46,27 +86,15 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
     }
 
     if (libxl_defbool_val(d_config->b_info.arch_arm.virtio)) {
-        uint64_t virtio_base;
-        libxl_device_virtio_disk *virtio_disk;
-
-        virtio_base = GUEST_VIRTIO_MMIO_BASE;
-        virtio_irq = GUEST_VIRTIO_MMIO_SPI;
-
-        if (!d_config->num_virtio_disks) {
+        if (!is_virtio_device_present(d_config)) {
             LOG(ERROR, "Virtio is enabled, but no Virtio devices present\n");
             return ERROR_FAIL;
         }
-        virtio_disk = &d_config->virtio_disks[0];
 
-        for (i = 0; i < virtio_disk->num_disks; i++) {
-            virtio_disk->disks[i].base = virtio_base;
-            virtio_disk->disks[i].irq = virtio_irq;
-
-            LOG(DEBUG, "Allocate Virtio MMIO params: IRQ %u BASE 0x%"PRIx64,
-                virtio_irq, virtio_base);
-
-            virtio_irq ++;
-            virtio_base += GUEST_VIRTIO_MMIO_SIZE;
+        virtio_irq = prepare_virtio_config(gc, d_config);
+        if (virtio_irq == GUEST_VIRTIO_MMIO_SPI) {
+            LOG(ERROR, "Not any virtio device present?\n");
+            return ERROR_FAIL;
         }
         virtio_irq --;
 
