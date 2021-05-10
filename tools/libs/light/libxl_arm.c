@@ -1069,14 +1069,16 @@ next_resize:
         if (libxl_defbool_val(info->arch_arm.virtio)) {
             libxl_domain_config *d_config =
                 container_of(info, libxl_domain_config, b_info);
-            libxl_device_virtio_disk *virtio_disk = &d_config->virtio_disks[0];
             unsigned int i;
 
-            for (i = 0; i < virtio_disk->num_disks; i++) {
-                uint64_t base = virtio_disk->disks[i].base;
-                uint32_t irq = virtio_disk->disks[i].irq;
+            if (d_config->num_virtio_disks) {
+                libxl_device_virtio_disk *virtio_disk = &d_config->virtio_disks[0];
+                for (i = 0; i < virtio_disk->num_disks; i++) {
+                    uint64_t base = virtio_disk->disks[i].base;
+                    uint32_t irq = virtio_disk->disks[i].irq;
 
-                FDT( make_virtio_mmio_node(gc, fdt, base, irq) );
+                    FDT( make_virtio_mmio_node(gc, fdt, base, irq) );
+                }
             }
         }
 
