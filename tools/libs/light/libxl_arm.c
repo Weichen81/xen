@@ -1124,6 +1124,16 @@ next_resize:
                     FDT( make_virtio_mmio_node(gc, fdt, base, irq) );
                 }
             }
+
+            if (d_config->num_virtio_consoles) {
+                libxl_device_virtio_console *virtio_cons = &d_config->virtio_consoles[0];
+                for (i = 0; i < virtio_cons->num_cons; i++) {
+                    uint64_t base = virtio_cons->cons[i].base;
+                    uint32_t irq = virtio_cons->cons[i].irq;
+
+                    FDT( make_virtio_mmio_node(gc, fdt, base, irq) );
+                }
+            }
         }
 
         if (pfdt)
