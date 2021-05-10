@@ -29,7 +29,8 @@ static const char *gicv_to_string(libxl_gic_version gic_version)
 static bool is_virtio_device_present(libxl_domain_config *d_config)
 {
     if ((d_config->num_virtio_disks == 0) &&
-        (d_config->num_virtio_nets == 0)) {
+        (d_config->num_virtio_nets == 0) &&
+        (d_config->num_virtio_consoles == 0)) {
         return false;
     }
 
@@ -49,6 +50,7 @@ static uint32_t prepare_virtio_config(libxl__gc *gc,
     uint32_t irq = GUEST_VIRTIO_MMIO_SPI;
     libxl_device_virtio_disk *virtio_disk;
     libxl_device_virtio_net *virtio_net;
+    libxl_device_virtio_console *virtio_cons;
 
     /* Allocate MMIO base and IRQ for virtio disk */
     if (d_config->num_virtio_disks) {
@@ -73,6 +75,21 @@ static uint32_t prepare_virtio_config(libxl__gc *gc,
             virtio_net->netifs[i].irq = irq;
 
             LOG(DEBUG, "Allocate Virtio Net MMIO params: IRQ %u BASE 0x%"PRIx64,
+                irq, base);
+
+            irq++;
+            base += GUEST_VIRTIO_MMIO_SIZE;
+        }
+    }
+
+    /* Allocate MMIO base and IRQ for virtio console */
+    if (d_config->num_virtio_consoles) {
+        virtio_cons = &d_config->virtio_consoles[0];
+        for (i = 0; i < virtio_cons->num_cons; i++) {
+            virtio_cons->cons[i].base = base;
+            virtio_cons->cons[i].irq = irq;
+
+            LOG(DEBUG, "Allocate Virtio Console MMIO params: IRQ %u BASE 0x%"PRIx64,
                 irq, base);
 
             irq++;
