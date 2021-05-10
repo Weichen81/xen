@@ -1205,6 +1205,7 @@ out:
 }
 
 #define MAX_VIRTIO_DISKS 4
+#define MAX_VIRTIO_NETS 4
 
 static int parse_virtio_disk_config(libxl_device_virtio_disk *virtio_disk, char *token)
 {
@@ -1306,6 +1307,118 @@ static void parse_virtio_disk_list(const XLU_Config *config,
 
             if (virtio_disk->num_disks == 0) {
                 fprintf(stderr, "At least one virtio disk should be specified\n");
+                rc = 1; goto out;
+            }
+        }
+    }
+
+    rc = 0;
+
+out:
+    free(buf);
+    if (rc) exit(EXIT_FAILURE);
+}
+
+static int parse_virtio_net_config(libxl_device_virtio_net *virtio_net, char *token)
+{
+    char *oparg;
+    libxl_string_list netifs = NULL;
+    int i, rc;
+
+    if (MATCH_OPTION("backend", token, oparg)) {
+        virtio_net->backend_domname = strdup(oparg);
+    } else if (MATCH_OPTION("netifs", token, oparg)) {
+        split_string_into_string_list(oparg, ";", &netifs);
+
+        virtio_net->num_netifs = libxl_string_list_length(&netifs);
+        if (virtio_net->num_netifs > MAX_VIRTIO_NETS) {
+            fprintf(stderr, "vnetif: currently only %d netif are supported",
+                    MAX_VIRTIO_NETS);
+            return 1;
+        }
+        virtio_net->netifs = xcalloc(virtio_net->num_netifs,
+                                     sizeof(*virtio_net->netifs));
+
+        for(i = 0; i < virtio_net->num_netifs; i++) {
+            char *netif_opt;
+
+            rc = split_string_into_pair(netifs[i], ":", &netif_opt,
+                                        &virtio_net->netifs[i].interface);
+            if (rc) {
+                fprintf(stderr, "vnetif: failed to split \"%s\" into pair\n",
+                        netifs[i]);
+                goto out;
+            }
+
+            if (!strcmp(netif_opt, "tap"))
+                virtio_net->netifs[i].tap = 1;
+            else if (!strcmp(netif_opt, "user"))
+                virtio_net->netifs[i].tap = 0;
+            else {
+                fprintf(stderr, "vnetif: failed to parse \"%s\" netif option\n",
+                        netif_opt);
+                rc = 1;
+            }
+            free(netif_opt);
+
+            if (rc) goto out;
+        }
+    } else {
+        fprintf(stderr, "Unknown string \"%s\" in vnetif spec\n", token);
+        rc = 1; goto out;
+    }
+
+    rc = 0;
+
+out:
+    libxl_string_list_dispose(&netifs);
+    return rc;
+}
+
+static void parse_virtio_net_list(const XLU_Config *config,
+                            libxl_domain_config *d_config)
+{
+    XLU_ConfigList *virtio_nets;
+    const char *item;
+    char *buf = NULL;
+    int rc;
+
+    if (!xlu_cfg_get_list (config, "vnetif", &virtio_nets, 0, 0)) {
+        libxl_domain_build_info *b_info = &d_config->b_info;
+        int entry = 0;
+
+        /* XXX Remove an extra property */
+        libxl_defbool_setdefault(&b_info->arch_arm.virtio, false);
+        if (!libxl_defbool_val(b_info->arch_arm.virtio)) {
+            fprintf(stderr, "Virtio device requires Virtio property to be set\n");
+            exit(EXIT_FAILURE);
+        }
+
+        while ((item = xlu_cfg_get_listitem(virtio_nets, entry)) != NULL) {
+            libxl_device_virtio_net *virtio_net;
+            char *p;
+
+            virtio_net = ARRAY_EXTEND_INIT(d_config->virtio_nets,
+                                            d_config->num_virtio_nets,
+                                            libxl_device_virtio_net_init);
+
+            buf = strdup(item);
+
+            p = strtok (buf, ",");
+            while (p != NULL)
+            {
+                while (*p == ' ') p++;
+
+                rc = parse_virtio_net_config(virtio_net, p);
+                if (rc) goto out;
+
+                p = strtok (NULL, ",");
+            }
+
+            entry++;
+
+            if (virtio_net->num_netifs == 0) {
+                fprintf(stderr, "At least one virtio net should be specified\n");
                 rc = 1; goto out;
             }
         }
@@ -2853,6 +2966,7 @@ skip_usbdev:
 
     parse_vkb_list(config, d_config);
     parse_virtio_disk_list(config, d_config);
+    parse_virtio_net_list(config, d_config);
 
     xlu_cfg_get_defbool(config, "xend_suspend_evtchn_compat",
                         &c_info->xend_suspend_evtchn_compat, 0);
